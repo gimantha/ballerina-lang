@@ -815,7 +815,7 @@ public class QueryDesugar extends BLangNodeVisitor {
      */
     private BLangLambdaFunction createFilterLambda(Location pos) {
         // returns boolean
-        BLangValueType returnType = getBooleanTypeNode();
+        BLangUnionTypeNode returnType = getBooleanErrorTypeNode();
         return createLambdaFunction(pos, returnType, null, false);
     }
 
@@ -1233,6 +1233,16 @@ public class QueryDesugar extends BLangNodeVisitor {
         booleanTypeNode.typeKind = TypeKind.BOOLEAN;
         booleanTypeNode.setBType(symTable.booleanType);
         return booleanTypeNode;
+    }
+
+    private BLangUnionTypeNode getBooleanErrorTypeNode() {
+        BUnionType unionType = BUnionType.create(null, symTable.booleanType, symTable.errorType);
+        BLangUnionTypeNode unionTypeNode = (BLangUnionTypeNode) TreeBuilder.createUnionTypeNode();
+        unionTypeNode.setBType(unionType);
+        unionTypeNode.memberTypeNodes.add(getBooleanTypeNode());
+        unionTypeNode.memberTypeNodes.add(getErrorTypeNode());
+        unionTypeNode.desugared = true;
+        return unionTypeNode;
     }
 
     /**
