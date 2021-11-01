@@ -55,7 +55,7 @@ public isolated function cause(error e) returns error? = @java:Method {
 # The returned value will be immutable.
 # + e - the error value
 # + return - error detail value
-public isolated function detail(error<DetailType> e) returns DetailType = @java:Method {
+public isolated function detail(error<DetailType> e) returns readonly & DetailType = @java:Method {
     'class: "org.ballerinalang.langlib.error.Detail",
     name: "detail"
 } external;
