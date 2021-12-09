@@ -5111,11 +5111,7 @@ public class TypeChecker extends BLangNodeVisitor {
 
     @Override
     public void visit(BLangQueryAction queryAction) {
-        if (prevEnvs.empty()) {
-            prevEnvs.push(env);
-        } else {
-            prevEnvs.push(prevEnvs.peek());
-        }
+        prevEnvs.push(env);
         queryEnvs.push(prevEnvs.peek());
         BLangDoClause doClause = queryAction.getDoClause();
         queryFinalClauses.push(doClause);
