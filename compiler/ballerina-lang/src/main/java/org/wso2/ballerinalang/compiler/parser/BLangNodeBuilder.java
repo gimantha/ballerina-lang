@@ -223,7 +223,7 @@ import io.ballerina.compiler.syntax.tree.XMLSimpleNameNode;
 import io.ballerina.compiler.syntax.tree.XMLStartTagNode;
 import io.ballerina.compiler.syntax.tree.XMLStepExpressionNode;
 import io.ballerina.compiler.syntax.tree.XMLTextNode;
-import io.ballerina.runtime.api.utils.IdentifierUtils;
+import io.ballerina.identifier.Utils;
 import io.ballerina.runtime.internal.XmlFactory;
 import io.ballerina.tools.diagnostics.DiagnosticCode;
 import io.ballerina.tools.diagnostics.Location;
@@ -1525,20 +1525,32 @@ public class BLangNodeBuilder extends NodeTransformer<BLangNode> {
         BLangBlockFunctionBody bLFuncBody = (BLangBlockFunctionBody) TreeBuilder.createBlockFunctionBodyNode();
         this.isInLocalContext = true;
         List<BLangStatement> statements = new ArrayList<>();
+        List<BLangStatement> stmtList = statements;
         if (functionBodyBlockNode.namedWorkerDeclarator().isPresent()) {
             NamedWorkerDeclarator namedWorkerDeclarator = functionBodyBlockNode.namedWorkerDeclarator().get();
-            generateAndAddBLangStatements(namedWorkerDeclarator.workerInitStatements(), statements);
+            NodeList<StatementNode> workerInitStmts = namedWorkerDeclarator.workerInitStatements();
+            generateAndAddBLangStatements(workerInitStmts, statements, 0, functionBodyBlockNode);
+
+            int stmtSize = statements.size();
+            int workerInitStmtSize = workerInitStmts.size();
+            // If there's a worker defined after an `if` statement without an `else`, need to add it to the
+            // newly created block statement.
+            if (stmtSize > 1 && workerInitStmtSize > 0 && statements.get(stmtSize - 1).getKind() == NodeKind.BLOCK &&
+                    statements.get(stmtSize - 2).getKind() == NodeKind.IF &&
+                    workerInitStmts.get(workerInitStmtSize - 1).kind() != SyntaxKind.BLOCK_STATEMENT) {
+                stmtList = ((BLangBlockStmt) statements.get(stmtSize - 1)).stmts;
+            }
 
             for (NamedWorkerDeclarationNode workerDeclarationNode : namedWorkerDeclarator.namedWorkerDeclarations()) {
-                statements.add((BLangStatement) workerDeclarationNode.apply(this));
+                stmtList.add((BLangStatement) workerDeclarationNode.apply(this));
                 // Consume resultant additional statements
                 while (!this.additionalStatements.empty()) {
-                    statements.add(additionalStatements.pop());
+                    stmtList.add(additionalStatements.pop());
                 }
             }
         }
 
-        generateAndAddBLangStatements(functionBodyBlockNode.statements(), statements);
+        generateAndAddBLangStatements(functionBodyBlockNode.statements(), stmtList, 0, functionBodyBlockNode);
 
         bLFuncBody.stmts = statements;
         bLFuncBody.pos = getPosition(functionBodyBlockNode);
@@ -1613,7 +1625,7 @@ public class BLangNodeBuilder extends NodeTransformer<BLangNode> {
         String workerOriginalName = workerName;
         if (workerName.startsWith(IDENTIFIER_LITERAL_PREFIX)) {
             bLFunction.defaultWorkerName.setOriginalValue(workerName);
-            workerName = IdentifierUtils.unescapeUnicodeCodepoints(workerName.substring(1));
+            workerName = Utils.unescapeUnicodeCodepoints(workerName.substring(1));
         }
 
         bLFunction.defaultWorkerName.value = workerName;
@@ -2731,7 +2743,7 @@ public class BLangNodeBuilder extends NodeTransformer<BLangNode> {
     public BLangNode transform(BlockStatementNode blockStatement) {
         BLangBlockStmt bLBlockStmt = (BLangBlockStmt) TreeBuilder.createBlockNode();
         this.isInLocalContext = true;
-        bLBlockStmt.stmts = generateBLangStatements(blockStatement.statements());
+        bLBlockStmt.stmts = generateBLangStatements(blockStatement.statements(), blockStatement);
         this.isInLocalContext = false;
         bLBlockStmt.pos = getPosition(blockStatement);
         return bLBlockStmt;
@@ -4943,21 +4955,47 @@ public class BLangNodeBuilder extends NodeTransformer<BLangNode> {
         return typeNode;
     }
 
-    private List<BLangStatement> generateBLangStatements(NodeList<StatementNode> statementNodes) {
+    private List<BLangStatement> generateBLangStatements(NodeList<StatementNode> statementNodes, Node endNode) {
         List<BLangStatement> statements = new ArrayList<>();
-        return generateAndAddBLangStatements(statementNodes, statements);
+        return generateAndAddBLangStatements(statementNodes, statements, 0, endNode);
     }
 
     private List<BLangStatement> generateAndAddBLangStatements(NodeList<StatementNode> statementNodes,
-                                                               List<BLangStatement> statements) {
-        for (StatementNode statement : statementNodes) {
+                                                               List<BLangStatement> statements,
+                                                               int startPosition, Node endNode) {
+        int lastStmtIndex = statementNodes.size() - 1;
+        for (int j = startPosition; j < statementNodes.size(); j++) {
+            StatementNode currentStatement = statementNodes.get(j);
             // TODO: Remove this check once statements are non null guaranteed
-            if (statement != null) {
-                if (statement.kind() == SyntaxKind.FORK_STATEMENT) {
-                    generateForkStatements(statements, (ForkStatementNode) statement);
-                    continue;
+            if (currentStatement == null) {
+                continue;
+            }
+            if (currentStatement.kind() == SyntaxKind.FORK_STATEMENT) {
+                generateForkStatements(statements, (ForkStatementNode) currentStatement);
+                continue;
+            }
+            // If there is an `if` statement without an `else`, all the statements following that `if` statement
+            // are added to a new block statement.
+            if (currentStatement.kind() == SyntaxKind.IF_ELSE_STATEMENT &&
+                    ((IfElseStatementNode) currentStatement).elseBody().isEmpty()) {
+                statements.add((BLangStatement) currentStatement.apply(this));
+                if (j == lastStmtIndex) {
+                    // Add an empty block statement if there are no statements following the `if` statement.
+                    statements.add((BLangBlockStmt) TreeBuilder.createBlockNode());
+                    break;
                 }
-                statements.add((BLangStatement) statement.apply(this));
+                BLangBlockStmt bLBlockStmt = (BLangBlockStmt) TreeBuilder.createBlockNode();
+                int nextStmtIndex = j + 1;
+                this.isInLocalContext = true;
+                generateAndAddBLangStatements(statementNodes, bLBlockStmt.stmts, nextStmtIndex, endNode);
+                this.isInLocalContext = false;
+                if (nextStmtIndex <= lastStmtIndex) {
+                    bLBlockStmt.pos = getPosition(statementNodes.get(nextStmtIndex), endNode);
+                }
+                statements.add(bLBlockStmt);
+                break;
+            } else {
+                statements.add((BLangStatement) currentStatement.apply(this));
             }
         }
         return statements;
@@ -5216,10 +5254,10 @@ public class BLangNodeBuilder extends NodeTransformer<BLangNode> {
         }
 
         if (value.startsWith(IDENTIFIER_LITERAL_PREFIX)) {
-            bLIdentifer.setValue(IdentifierUtils.unescapeUnicodeCodepoints(value.substring(1)));
+            bLIdentifer.setValue(Utils.unescapeUnicodeCodepoints(value.substring(1)));
             bLIdentifer.setLiteral(true);
         } else {
-            bLIdentifer.setValue(IdentifierUtils.unescapeUnicodeCodepoints(value));
+            bLIdentifer.setValue(Utils.unescapeUnicodeCodepoints(value));
             bLIdentifer.setLiteral(false);
         }
         bLIdentifer.setOriginalValue(value);
@@ -5334,7 +5372,7 @@ public class BLangNodeBuilder extends NodeTransformer<BLangNode> {
 
             if (type != SyntaxKind.TEMPLATE_STRING && type != SyntaxKind.XML_TEXT_CONTENT) {
                 try {
-                    text = IdentifierUtils.unescapeBallerina(text);
+                    text = Utils.unescapeBallerina(text);
                 } catch (Exception e) {
                     // We may reach here when the string literal has syntax diagnostics.
                     // Therefore mock the compiler with an empty string.
@@ -5380,10 +5418,10 @@ public class BLangNodeBuilder extends NodeTransformer<BLangNode> {
     }
 
     private void validateUnicodePoints(String text, Location pos) {
-        Matcher matcher = IdentifierUtils.UNICODE_PATTERN.matcher(text);
+        Matcher matcher = Utils.UNICODE_PATTERN.matcher(text);
         while (matcher.find()) {
             String leadingBackSlashes = matcher.group(1);
-            if (IdentifierUtils.isEscapedNumericEscape(leadingBackSlashes)) {
+            if (Utils.isEscapedNumericEscape(leadingBackSlashes)) {
                 // e.g. \\u{61}, \\\\u{61}
                 continue;
             }
@@ -5604,7 +5642,7 @@ public class BLangNodeBuilder extends NodeTransformer<BLangNode> {
                     BLangIdentifier paraName = new BLangIdentifier();
                     Token parameterName = parameterDocLineNode.parameterName();
                     String parameterNameValue = parameterName.isMissing() ? "" :
-                            IdentifierUtils.unescapeUnicodeCodepoints(parameterName.text());
+                            Utils.unescapeUnicodeCodepoints(parameterName.text());
                     if (stringStartsWithSingleQuote(parameterNameValue)) {
                         parameterNameValue = parameterNameValue.substring(1);
                     }
@@ -5800,13 +5838,13 @@ public class BLangNodeBuilder extends NodeTransformer<BLangNode> {
                 throw new IllegalArgumentException("Invalid backtick content transformation");
         }
         if (bLangRefDoc.identifier != null) {
-            bLangRefDoc.identifier = IdentifierUtils.unescapeUnicodeCodepoints(bLangRefDoc.identifier);
+            bLangRefDoc.identifier = Utils.unescapeUnicodeCodepoints(bLangRefDoc.identifier);
             if (stringStartsWithSingleQuote(bLangRefDoc.identifier)) {
                 bLangRefDoc.identifier = bLangRefDoc.identifier.substring(1);
             }
         }
         if (bLangRefDoc.qualifier != null) {
-            bLangRefDoc.qualifier = IdentifierUtils.unescapeUnicodeCodepoints(bLangRefDoc.qualifier);
+            bLangRefDoc.qualifier = Utils.unescapeUnicodeCodepoints(bLangRefDoc.qualifier);
             if (stringStartsWithSingleQuote(bLangRefDoc.qualifier)) {
                 bLangRefDoc.qualifier = bLangRefDoc.qualifier.substring(1);
             }
