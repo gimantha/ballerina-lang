@@ -4091,10 +4091,16 @@ public class SymbolEnter extends BLangNodeVisitor {
     private void defineReferencedFields(BStructureType structureType, BLangStructureTypeNode structureTypeNode) {
         SymbolEnv typeDefEnv = structureTypeNode.typeDefEnv;
         for (BLangSimpleVariable field : structureTypeNode.includedFields) {
+            // get the old doc attachment and remove the old symbol
+            MarkdownDocAttachment docAttachment = field.symbol.markdownDocumentation;
+            field.symbol = null;
+            // create a new symbol for included field
             defineNode(field, typeDefEnv);
             if (field.symbol.type == symTable.semanticError) {
                 continue;
             }
+            // link the markdown documentation to the new symbol
+            field.symbol.markdownDocumentation = docAttachment;
             structureType.fields.put(field.name.value, new BField(names.fromIdNode(field.name), field.pos,
                     field.symbol));
         }
@@ -5245,6 +5251,8 @@ public class SymbolEnter extends BLangNodeVisitor {
             }).map(field -> {
                 BLangSimpleVariable var = ASTBuilderUtil.createVariable(typeRef.pos, field.name.value, field.type);
                 var.flagSet = field.symbol.getFlags();
+                // temporarily assign symbol to propagate markdown documentation info
+                var.symbol = field.symbol;
                 return var;
             });
         }).collect(Collectors.toList());
