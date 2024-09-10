@@ -261,24 +261,24 @@ public class DiffUtils {
     }
 
     private static String getDiffName(Diff diff) {
-        if (diff instanceof PackageDiff diff1) {
-            return getPackageName(diff1);
-        } else if (diff instanceof ModuleDiff diff1) {
-            return getModuleName(diff1);
-        } else if (diff instanceof FunctionDiff diff1) {
-            return getFunctionName(diff1);
-        } else if (diff instanceof ServiceDiff diff1) {
-            return getServiceName(diff1);
-        } else if (diff instanceof ModuleVarDiff diff1) {
-            return getModuleVariableName(diff1);
-        } else if (diff instanceof ModuleConstantDiff diff1) {
-            return getModuleConstantName(diff1);
-        } else if (diff instanceof ClassDiff diff1) {
-            return getModuleClassName(diff1);
-        } else if (diff instanceof TypeDefinitionDiff diff1) {
-            return getModuleTypeDefName(diff1);
-        } else if (diff instanceof EnumDiff diff1) {
-            return getModuleEnumName(diff1);
+        if (diff instanceof PackageDiff packageDiff) {
+            return getPackageName(packageDiff);
+        } else if (diff instanceof ModuleDiff packageDiff) {
+            return getModuleName(packageDiff);
+        } else if (diff instanceof FunctionDiff packageDiff) {
+            return getFunctionName(packageDiff);
+        } else if (diff instanceof ServiceDiff packageDiff) {
+            return getServiceName(packageDiff);
+        } else if (diff instanceof ModuleVarDiff packageDiff) {
+            return getModuleVariableName(packageDiff);
+        } else if (diff instanceof ModuleConstantDiff packageDiff) {
+            return getModuleConstantName(packageDiff);
+        } else if (diff instanceof ClassDiff packageDiff) {
+            return getModuleClassName(packageDiff);
+        } else if (diff instanceof TypeDefinitionDiff packageDiff) {
+            return getModuleTypeDefName(packageDiff);
+        } else if (diff instanceof EnumDiff packageDiff) {
+            return getModuleEnumName(packageDiff);
         } else {
             return UNKNOWN;
         }
